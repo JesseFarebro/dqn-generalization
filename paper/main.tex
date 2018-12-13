@@ -1,0 +1,530 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+% \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading nips_2018
+
+% ready for submission
+\usepackage[]{iclr2019_conference, times}
+
+\iclrpreprintcopy
+
+% to compile a preprint version, e.g., for submission to arXiv, add
+% add the [preprint] option:
+% \usepackage[preprint]{nips_2018}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+% \usepackage[final]{nips_2018}
+
+% to avoid loading the natbib package, add option nonatbib:
+% \usepackage[nonatbib]{nips_2018}
+
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage[belowskip=1pt]{caption}
+\usepackage{subcaption}
+\usepackage{graphicx}
+\usepackage{color}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{natbib}
+\usepackage[mathscr]{eucal}
+\usepackage{float}
+
+\newcommand\cites[1]{\citeauthor{#1}'s\ (\citeyear{#1})}
+
+\title{Generalization and Regularization in DQN}
+
+% The \author macro works with any number of authors. There are two
+% commands used to separate the names and addresses of multiple
+% authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to
+% break the lines. Using \AND forces a line break at that point. So,
+% if LaTeX puts 3 of 4 authors names on the first line, and the last
+% on the second line, try using \AND instead of \And before the third
+% author name.
+
+\author{
+    Jesse Farebrother{\normalfont\thanks{Corresponding author: \href{mailto:jfarebro@ualberta.ca}{jfarebro@ualberta.ca}}} \,,\, Marlos C. Machado,\, Michael Bowling \\[0.5mm]
+    \hspace{0mm}
+    University of Alberta, Edmonton, AB, Canada\ignorespaces
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Deep reinforcement learning (RL) algorithms have shown an impressive ability to learn complex control policies in high-dimensional environments. However, despite the ever-increasing performance on popular benchmarks like the Arcade Learning Environment (ALE), policies learned by deep RL algorithms can struggle to generalize when evaluated in remarkably similar environments. These results are unexpected given the fact that, in supervised learning, deep neural networks often learn robust features that generalize across tasks. 
+In this paper, we study the generalization capabilities of DQN in order to aid in understanding this mismatch between generalization in deep RL and supervised learning methods.
+We provide evidence suggesting that DQN overspecializes to the domain it is trained on.
+We then comprehensively evaluate the impact of traditional methods of regularization from supervised learning, $\ell_2$ and dropout, and of reusing learned representations to improve the generalization capabilities of DQN.
+We perform this study using different game modes of Atari 2600 games, a recently introduced modification for the ALE which supports slight variations of the Atari 2600 games used for benchmarking in the field.
+Despite regularization being largely underutilized in deep RL, we show that it can, in fact, help DQN learn more general features. These features can then be reused and fine-tuned on similar tasks, considerably improving the sample efficiency of DQN.
+\end{abstract}
+
+\section{Introduction}
+
+Recently, reinforcement learning (RL) has proven very successful on complex high-dimensional problems, in large part due to the increase in computational power and to the use of deep neural networks for function approximation \citep[e.g.,][]{Mnih15,Silver16}. Despite the generality of the proposed solutions, applying these algorithms to slightly different environments generally requires agents to learn the new task from scratch. Practitioners often realize that the learned policies rarely generalize to other domains, even when they are remarkably similar, and that the learned representations are seldom reusable.
+
+Deep neural networks, though, are lauded for their generalization capabilities~\citep[e.g.,][]{Lecun98}. Some communities heavily rely on reusing representations learned by neural networks. 
+In computer vision, classification and segmentation algorithms are rarely trained from scratch; instead they are initialized with pre-trained models from larger datasets like ImageNet \citep[e.g.,][]{Razavian14, Long15}. The field of natural language processing has also seen successes in reusing and refining weights from certain layers of neural networks using pre-trained word embeddings, with more recent techniques able to reuse all weights of the network \citep[e.g.,][]{Howard18}.
+
+
+In light of the successes of traditional supervised learning methods, the current lack of generalization or reusable knowledge (e.g., policies, representation) acquired by current deep RL algorithms is somewhat surprising. In this paper we investigate whether the representation learned by deep RL methods can be generalized, or at the very least reused and refined on small variations to the task at hand. 
+First, we evaluate the generalization capabilities of DQN \citep{Mnih15}.
+We further explore whether the experience gained by the supervised learning community to improve generalization and to avoid overfitting could be used in deep RL.
+We employ conventional supervised learning techniques, albeit largely unexplored in deep RL, such as fine-tuning (i.e., reusing and refining the representation) and regularization.
+We show that a learned representation trained with regularization allows us to learn more general features capable of being reused and fine-tuned.
+Besides improving the generalization capabilities of the learned policies this fine-tuning procedure has the potential to greatly improve sample efficiency on settings in which an agent might face multiple variations of the same task.
+Finally, the results we present here also can be seen as paving a way towards novel curriculum learning approaches for deep RL.
+
+
+We perform our experiments using different game modes and difficulties of Atari 2600 games, a newly introduced feature of the Arcade Learning Environment \citep[ALE;][]{Bellemare13}. These game modes allow agents to be trained in one environment while being evaluated in a slightly different environment that still captures key concepts of the original environment (e.g., game sprites, agent goals, dynamics).
+This use of game modes is itself a novel approach for measuring our progress toward a longstanding goal of agents that can learn to be generally competent and generalize across tasks \citep{Bellemare13, Machado18, Nichol18}.
+This paper also introduces the first baselines for the different modes of Atari 2600 games.
+
+\section{Background}
+\subsection{Reinforcement Learning}
+Reinforcement learning (RL) is a problem where an agent interacts with an environment with the goal of maximizing some form of cumulative long term reward. 
+RL problems are often modeled as a Markov decision process (MDP), defined by a 5-tuple $\langle \mathscr{S}, \mathscr{A}, p, r, \gamma \rangle$. At a discrete time step $t$ the agent observes the current state $S_t \in \mathscr{S}$ and chooses an action $A_t \in \mathscr{A}$ to probabilistically transition to the next state $S_{t+1} \in \mathscr{S}$ according to the transition dynamics function $p(s' \,|\, s, a ) \doteq P(S_{t+1} = s' \,|\, S_t = s\,, A_t = a) $. The agent receives a reward signal $R_{t+1}$ according to the reward function $r : \mathscr{S} \times \mathscr{A} \to \mathbb{R}$. The agents goal is to learn a policy $\pi : \mathscr{S} \times \mathscr{A}$ defined as the conditional probability of taking action $a$ in state $s$ written as $\pi(a\,|\,s)$. The learning agent refines its policy with the objective of maximizing the expected return, that is, the cumulative discounted reward incurred from time $t$, defined by $G_t \doteq \sum_{k=0}^\infty \gamma^k R_{t+k+1}$ where $\gamma \in [0, 1)$ is the discount factor.
+
+Q-learning \citep{Watkins92} is a traditional approach to learning an optimal policy from samples obtained from interactions with the environment. It is used to learn an optimal state-action value function via a bootstrapped iterative method.
+For a given policy $\pi$ we define the state-action value function as the expected return conditioned on a state and action ${q_{\pi}(s, a) \doteq \mathop{\mathbb{E}}_{\pi} \big[ G_t | S_t = \, s ,  A_t = \, a \big]}$. The agent iteratively updates the state-action value function based on samples from the environment using the update~rule
+%The Q-learning update rule can now be defined as
+$$
+Q(S_t, A_t) \gets Q(S_t, A_t) + \alpha \big[ R_{t+1} + \gamma \max_{a' \in \mathcal{A}}{Q(S_{t+1}, a')} - Q(S_t, A_t) \big]
+$$
+where $t$ denotes the current timestep and $\alpha$ the step size.
+Generally, due to the exploding size of the state space in many real-world problems, it is intractable to learn a state-action pairing for the entire MDP, with researchers and practitioners often resorting to learning an approximate~to~$q_{\pi}$.
+
+DQN approximates the state-action value function such that $q_{\pi}(s, a) \approx Q(s, a; \, \theta)$, where $\theta$ denotes the weights of a neural network. The network takes as input some encoding of the current state $S_t$ and outputs $|\mathcal{A}|$ scalars corresponding to the state-action values for that given state.
+DQN is trained to minimize
+$$
+L^{\tiny\textsc{DQN}} = \mathop{\mathbb{E}}_{S_{t},\, A_t,\, R_{t+1},\, S_{t+1} \, \sim \, U(\cdot)} \big[ {\big( R_{t+1} + \max_{a' \in \mathcal{A}} Q(S_{t+1}, a';\, \theta^{-})  - Q(S_t, A_t;\, \theta) \big)}^2 \big]
+$$
+where $( S_t, A_t, R_{t+1}, S_{t+1} )$ are uniformly sampled from $U(\cdot)$, the experience replay buffer filled with experience collected by the agent. The weights $\theta^{-}$ of a duplicate network are updated less frequently for stability purposes.
+
+
+\subsection{Supervised Learning}
+In the supervised learning problem we are given a dataset of examples represented by a matrix $X \in \mathbb{R}^{m \times n}$ with $m$ training examples of dimension $n$, and a vector $\mathbf{y} \in \mathbb{R}^{1 \times m}$ denoting the output target $y_i$ for each training example $X_i$. 
+We want to learn a function which maps each training example $X_i$ to its predicted output label $\hat{y}_i$. The goal is to learn a robust model that accurately predicts $y_i$ from $X_i$ while also being able to generalize to unseen training examples. In this paper we focus on using a neural network parameterized by the weights $\theta$ to learn the function $f$ such that $\hat{y}_i = f(X_i;\, \theta)$. We typically train these models by minimizing
+$$
+\min_{\theta} \,\, \frac{\lambda}{2} \,\, {\left\| \theta \right\|}^{2}_{2} + \frac{1}{m} \sum_{i = 1}^{m}{L(y_i, \hat{y}_i)} = \min_{\theta} \,\, \frac{\lambda}{2} \,\, {\left\| \theta \right\|}^{2}_{2} + \frac{1}{m} \sum_{i = 1}^{m}{L(y_i, f(X_i;\, \theta))}
+$$
+where $L$ is a differentiable loss function which outputs a scalar determining the quality of the prediction (e.g., squared error loss).
+The first term is a form of regularization, i.e., $\ell_2$ regularization, which encourages generalization. $\ell_2$ regularization imposes a penalty on large weight vectors with $\lambda$ being the weighted importance of the regularization term.
+
+Another popular regularization technique is dropout \citep{Srivastava14}. When using dropout, during forward propagation each neural unit has a chance of being set to zero according to a Bernoulli distribution with probability $p \in [0, 1]$, referred to as the dropout rate. Dropout discourages the network from relying on a small number of neurons to make a prediction, making it hard for the network to memorize the dataset.
+
+
+Prior to training, the network parameters are usually initialized through a stochastic process \citep[e.g., Xavier initialization;][]{Glorot10}.
+We can also initialize the network using pre-trained weights from a different task.
+If we reuse one or more pre-trained layers we say the weights encoded by those layers will be fine-tuned during training \citep[e.g.,][]{Razavian14, Long15}.
+
+
+\section{The ALE as a platform for evaluating generalization}
+
+
+
+The Arcade Learning Environment (ALE) is a platform used to evaluate agents across dozens of Atari 2600 games \citep{Bellemare13}. It has become one of the standard evaluation platforms in the field and has led to a number of exciting algorithmic advances~\citep[e.g.,][]{Mnih15}.
+The ALE poses the problem of general competency by having agents use the same learning algorithm to perform well in as many games as possible, while learning without using game specific knowledge.
+Learning to play multiple games with the same agent, or learning to play a game faster by leveraging knowledge acquired in a different game is much harder, with fewer successes being known~\citep[e.g.,][]{Rusu16, Kirkpatrick16, Parisotto16, Schwarz18,Espeholt18}.
+
+In this paper, we use the different modes and difficulties of Atari 2600 games to evaluate a neural network's ability to generalize in high-dimensional state spaces. Game modes, originally native to the Atari console, were recently added in the ALE \citep{Machado18}.
+They give us modifications of the default environment dynamics and state space, often modifying sprites, velocities, and partial observability. These modes pose a tractable way to investigate generalization of RL agents in a high-dimensional environment. Instead of requiring an agent to play multiple games that are visually very different or even non-analogous, it requires agents to play games that are visually very similar and that can be played with policies that are very similar, at least from a human perspective.
+
+We use $13$ flavours (combinations of a mode and a difficulty) obtained from $4$ games: \textsc{Freeway}, \textsc{HERO}, \textsc{Breakout}, and \textsc{Space Invaders}.
+In \textsc{Freeway}, the different modes vary the speed and number of vehicles, while different difficulties change how the player is penalized for running into a vehicle. In \textsc{HERO}, subsequent modes start the player off at increasingly harder levels of the game. The mode we use in \textsc{Breakout} makes the bricks partially observable. The used modes in \textsc{Space Invaders} allow for oscillating shield barriers, increasing the width of the player sprite, and partially observable aliens. Full explanations of specific games, their modes, and their difficulties can be found in Appendix~\ref{appendix:modes}. Figure~\ref{fig:alemodes} provides screenshots showing side by side comparisons of some of the modes explored in this paper. When reading the analyses of this paper it is important to keep in mind how remarkably similar these modes are.
+
+\begin{figure}[t]
+    \centering
+    \def\arraystretch{0.75}
+    \begin{tabular}{cccc}
+        \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/freeway_m0.png}
+        & \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/hero_m0.png}
+        & \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/breakout_m0.png}
+        & \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/space_invaders_m0.png} \\
+        \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/freeway_m1.png}
+        & \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/hero_m1.png}
+        & \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/breakout_m12.png}
+        & \includegraphics[height=0.9in, width=1.2in]{figures/alemodes/space_invaders_m1.png}
+    \end{tabular}
+    \caption{Each column shows variation between two selected flavours of each game. From left to right: \textsc{Freeway}, \textsc{Hero}, \textsc{Breakout}, and \textsc{Space Invaders}.}
+    \label{fig:alemodes}
+\end{figure}
+
+
+
+\section{Generalization of the learned policies and overfitting}
+
+
+In order to test the generalization capabilities of DQN we first evaluate whether a policy learned in one flavour can perform well in a different flavour. As afformentioned, different modes and difficulties of a single game look very similar.
+If the representation encodes a robust policy we might expect it to be able to generalize to slight variations of the underlying reward signal, game dynamics, or observations.
+Evaluating the learned policy in a similar but different flavour can be seen as evaluating generalization in RL, similar to cross-validation in supervised learning.
+
+To evaluate DQN's ability to generalize across flavours we evaluate the learned $\epsilon$-greedy policy on a new flavour after being trained for 50M frames in the default flavour, m0d0 (mode 0, difficulty 0). We measure the cumulative reward averaged over 100 episodes in the new flavour, adhering to the evaluation protocol suggested by \cite{Machado18}. The results are summarized in Table~\ref{table:dpdp}.
+Baseline results where the agent is trained from scratch for 50M frames in the flavour we use for evaluation are summarized in the baseline column.
+Theoretically, this baseline can be seen as an upper bound on the performance DQN can achieve in that flavour, as it represents the agent's performance when evaluated in the same flavour it was trained on.
+Full baseline results with the agent's performance after different number of frames can be found in Appendix~\ref{appendix:baselines}.
+
+
+
+We can see in the results that the policies learned by DQN do not generalize well to different flavours, even when the flavours are remarkably similar. For example, in \textsc{Freeway}, a high-level policy applicable to all flavours is to go up while avoiding cars. Perhaps surprisingly, this does not seem to be what DQN learns. For example, the default flavour m0d0 and m4d0 have exactly the same sprites on the screen, the only difference is that in m4d0 some cars accelerate and decelerate over time. The close to optimal policy learned in m0d0 is only able to score 15.8 points when evaluated on m4d0, which is approximately half of what the policy learned from scratch in that flavour achieves (29.9 points). The learned policy when evaluated on flavours that differ more from~m0d0~perform~even~worse. 
+
+
+As previously mentioned, the different modes of \textsc{HERO} can be seen as giving the agent a curriculum or a natural progression. Interestingly, the agent trained in the default mode for 50M frames can progress to at least level 3 and sometimes level 4. Mode 1 starts the agent off at level 5, and performance in this mode suffers greatly during evaluation. There are very few game mechanics added to level 5, indicating that perhaps the agent is memorizing trajectories instead of learning a robust policy capable of solving each level.
+
+The results in some flavours suggest that the agent is overfitting to the flavour it is trained on. We tested this hypothesis by periodically evaluating the policy being learned in each of the other flavours of that game. This process involved taking checkpoints of the network at every $500,000$ frames and evaluating the $\epsilon$-greedy policy in the prescribed flavour for $100$ episodes, again further averaged over five runs. The obtained results in \textsc{Freeway}, the most pronounced game in which we see this overfitting trend, are depicted in Figure~\ref{fig:policytransfer}. Learning curves for all flavours can be found in~Appendix~\ref{appendix:policy_transfer_cuves}.
+
+\begin{figure}[t]
+    \captionsetup{justification=justified, font=small}
+    \begin{minipage}[t]{.55\linewidth}
+        \vspace{0pt}
+        \centering
+        \resizebox{\textwidth}{!}{
+            \input{tables/table_policy_evaluation.tex}
+        }%
+    \end{minipage}\hfill
+    \begin{minipage}[t]{.45\linewidth}
+        \vspace{-10pt}
+        \centering
+        \includegraphics[width=\textwidth]{figures/policy_evaluation_log.pdf}
+    \end{minipage}\hfill
+    \par
+    \begin{minipage}[t]{.53\linewidth}
+        \vspace{2mm}
+        \captionof{table}{Direct policy evaluation. Each game was initially trained in the default mode for 50M frames then evaluated in each listed game flavour. Reported numbers are the average over 5 runs. Standard deviation is reported between parentheses.}
+        \label{table:dpdp}
+        \vspace{-10pt}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{.43\linewidth}
+        \vspace{2mm}
+        \captionof{figure}{Performance of an agent that was trained in the default mode of \textsc{Freeway} and evaluated at every $500,000$ frames in each corresponding mode. Results are averaged over five seeds. The y-axis is log scaled.}
+        %The y-axis is log-scaled.}
+        \label{fig:policytransfer}
+        \vspace{-10pt}
+    \end{minipage}
+\end{figure}
+
+In \textsc{Freeway}, while we see the policy's performance flattening out in m4d0, we do see the traditional bell-shaped curve associated to overfitting in the other modes. At first, improvements in the original policy do correspond to improvements in the performance of that policy in other domains. With time, it seems that it starts to refine its policy for the specific flavour it is being trained on, overfitting to that flavour. With other game flavours being significantly more complex in their dynamics and gameplay, we do not observe this prominent bell-shaped curve though. For example, in \textsc{Breakout}, we actually observe a monotonic increase in performance throughout the evaluation process.
+
+In conclusion, when looking at Table~\ref{table:dpdp}, it seems that the policies learned by DQN struggle to generalize to even small variations encountered in game flavours. This lack of generalization is surprising, and results as seen in \textsc{Freeway} exhibit a troubling notion of overfitting. Based on these results we aim to evaluate whether deep RL could benefit from established methods from supervised learning promoting generalization and reducing overfitting.
+
+
+\section{Regularization in deep RL}
+
+In order to evaluate the hypothesis that the observed lack of generalization is due to overfitting, we revisit some popular regularization methods from the supervised learning literature. The two forms of regularization we test are dropout and $\ell_2$ regularization.
+
+First we want to understand the effect of regularization on evaluating the learned policy in a different flavour. We do so by applying dropout to the first four layers of the network during training, that is, the three convolutional layers and the first fully connected layer. We simultaneously apply $\ell_2$ regularization on all weights in the network based on preliminary experiments that showed an additive effect when combining dropout and $\ell_2$ regularization.
+This confirms, for example, \cites{Srivastava14} result that these methods provide benefit in tandem.
+
+
+We follow the same evaluation scheme described when evaluating the unregularized policy to different flavours. We evaluate the policy learned after 50M frames of the default mode of each game.
+A grid search was performed on \textsc{Freeway} to find reasonable hyperparameters for the dropout rate $p \in \{ 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 \}$ and the weighted regularization parameter $\lambda \in \{ 10^{-2}, 10^{-3}, 10^{-4} \}$. These parameters were then used for each subsequent flavour. Notably, significantly smaller dropout values were required compared to heuristics used in supervised learning, although this could be due to the small size of the network in question. We ended up choosing $\lambda = 10^{-4}$, $p=0.05$ for the first three convolutional layers, and $p=0.1$ for the first fully connected layer.
+We contrast these results with the results presented in the previous section. This evaluation protocol allows us to directly evaluate the effect of regularization on the learned policy's ability to generalize. A baseline agent trained from scratch for 50M frames in each flavour is also provided. The results are presented in Table~\ref{table:dpdpreg} with the evaluation learning curves being available in the Appendix.
+
+\begin{figure}[t]
+    \captionsetup{justification=justified, font=small}
+    \begin{minipage}[t]{.60\linewidth}
+        \vspace{0pt}
+        \centering
+        \resizebox{\textwidth}{!}{
+            \input{tables/table_policy_evaluation_reg.tex}
+        }%
+    \end{minipage}\hfill
+    \begin{minipage}[t]{.40\linewidth}
+        \vspace{-10pt}
+        \centering
+        \includegraphics[width=\textwidth]{figures/policy_evaluation_reg_log.pdf}
+    \end{minipage}\hfill
+    \par
+    \begin{minipage}[t]{.58\linewidth}
+        \vspace{2mm}
+        \captionof{table}{Policy evaluation using regularization. Each game was initially trained in the default mode for 50M frames with dropout and $\ell_2$ regularization then evaluated on each listed flavour. Reported numbers are the average over 5 runs. Standard deviation is reported between parentheses.}
+        \label{table:dpdpreg}
+        \vspace{-10pt}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{.37\linewidth}
+        \vspace{2mm}
+        \captionof{figure}{Performance of an agent that was evaluated every $500,000$ frames after being trained in the default flavour of \textsc{Freeway} with dropout and $\ell_2$ regularization. Results are averaged over five seeds. The y-axis is log scaled.}
+        \label{fig:policytransferreg}
+        \vspace{-10pt}
+    \end{minipage}
+\end{figure}
+
+When using regularization during training we sometimes observe a performance hit in the default flavour. Dropout generally requires increased training iterations to reach the same level of performance sans-dropout. Suprisingly, we did not observe this performance hit in all games. Nevertheless, maximal performance in one flavour is not our goal. We are interested in the setting where one may be willing to take lower performance on one task in order to obtain higher performance, or adaptability, on future tasks. Nevertheless, full baseline results using regularization in the default flavour can also be found in Table~\ref{table:baselinecompare} in the Appendix. 
+
+In most flavours, evaluating the policy trained with regularization does not negatively impact performance when compared to the performance of the policy trained without regularization. In some flavours we even see an increase in performance. Interestingly, when using regularization the agent in \textsc{Freeway} improves for all flavours and even learns a policy capable of outperforming the baseline learned from scratch in two of the three flavours.
+Moreover, in \textsc{Freeway} we now observe increasing performance during evaluation throughout most of the learning procedure as depicted in Figure~\ref{fig:policytransferreg}.
+These results seem to confirm the notion of overfitting observed in Figure~\ref{fig:policytransfer}.
+
+Despite slight improvements from these techniques, regularization by itself does not seem sufficient to enable policies to generalize across flavours. As shown in the next section, perhaps the real benefit of regularization in deep RL comes from the ability to learn more general features. These features may lead to a more adaptable representation which can be reused and subsequently fine-tuned on other flavours, which is often the case in supervised learning.
+
+
+
+\section{Value function fine-tuning}
+
+We hypothesize that the benefit of regularizing deep RL algorithms may not come from improvements during evaluation, but instead in having a good parameter initialization that can be adapted to new tasks that are similar.
+We evaluate this hypothesis using two common practices in machine learning. First, we the use the weights trained with regularization as the initialization for the entire network. We subsequently fine-tune all weights in the network. This is similar to what is performed in computer vision with supervised classification methods \citep[e.g.,][]{Razavian14}. Secondly, we evaluate reusing and fine-tuning only early layers of the network. This has been shown to improve generalization in some settings \citep[e.g.,][]{Yosinski14}, and is sometimes used in natural language processing \citep[e.g.,][]{Mou16, Howard18}. 
+
+When fine-tuning the entire network, we take the weights of the network trained in the default flavour for 50M frames and use them to initialize the network commencing training in the new flavour for 50M frames. We perform this set of experiments twice. Once for the weights trained without regularization, and again for the weights trained with regularization, as described in the previous section. Each run is averaged over five seeds. For comparison we provide a baseline trained from scratch for 50M and 100M frames in each flavour.
+Directly comparing the performance obtained after fine-tuning to the performance after 50M frames (\textsc{Scratch}) shows the benefit of re-using a representation learned in a different task instead of randomly initializing the network. Comparing the performance obtained after fine-tuning to the performance of 100M frames (\textsc{Scratch}) lets us take into consideration the whole learning process.
+The results are presented in Table~\ref{table:warmbaseline}.
+
+
+\begin{table}[t]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \input{tables/table_warm.tex}
+    }
+    \caption{Experiments fine-tuning the entire network with and without regularization (dropout + $\ell_2$). An agent is trained with dropout + $\ell_2$ regularization in the default flavour of each game for 50M frames, then DQN's parameters $\theta$ were used to initialize the fine-tuning procedure on each new flavour for 50M frames. The baseline agent is trained from scratch up to 100M frames. Standard deviation reported between~ parenthesis.}
+    \label{table:warmbaseline}
+\end{table}
+
+
+Fine-tuning from an unregularized representation yields conflicting conclusions.
+Although in \textsc{Freeway} we obtained positive fine-tuning results, we note that rewards are so sparse in m1d0 and m1d1 that this initialization is likely to be simply acting as a form of optimistic initialization, biasing the agent to go up. The agent observes rewards more often, therefore, it learns quicker about the new flavour. However, the agent is still unable to reach the maximum score in these flavours.
+
+The results of fine-tuning the regularized representation are more exciting.
+In \textsc{Freeway} we observe the highest scores on m1d0 and m1d1 throughout the whole paper. In \textsc{HERO} we vastly outperform fine-tuning from an unregularized representation. In \textsc{Space Invaders} we obtain higher scores across the board on average when comparing to the same amount of experience. These results suggest that reusing a regularized representation in deep RL might allow us to learn more general features which can be more successfully fine-tuned.
+
+Moreover, initializing the network with a regularized representation has a big impact on the agent's performance when compared to initializing the network randomly. These results are impressive when we consider the potential regularization has in reducing the sample complexity of deep RL algorithms.
+Such an observation also holds when we take the total number of frames seen between two flavours into consideration.
+When directly comparing one row of \textsc{Regularized Fine-tuning} to \textsc{Scratch} we are comparing two algorithms that observed 100M frames. However, to generate two rows of \textsc{Scratch} we used 200M frames while two rows of \textsc{Regularized Fine-tuning} used 150M frames (50M from scratch + 50M in each row). The distinction becomes bigger and bigger as more tasks are taken into~consideration.
+
+We further investigate which layers may encode general features able to be fine-tuned. Inspiration was taken from other studies that have shown that neural networks can re-learn co-adaptations when their final layers are randomly initialized, sometimes improving generalization \citep{Yosinski14}. We conjectured DQN may benefit from re-learning the co-adaptations between early layers comprising general features and the randomly initialized layers which ultimately assign state-action values. We hypothesized that it might be beneficial to re-learn the final layers from scratch since state-action values are ultimately conditioned on the flavour at hand. Therefore, we also evaluated whether fine-tuning only the convolutional layers, or the convolutional layers and the first fully connected layer was more effective than fine-tuning the whole network. Suprisingly, this does not seem to be the case. The performance obtained when the whole network is fine-tuned (Table~\ref{table:warmbaseline}) is consistently better than when it is not (Table~\ref{table:layer_comparison}). We speculate that this might not be the case on more~dissimilar~tasks.
+
+
+\section{Discussion and conclusion}
+
+\begin{table}[t]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \input{tables/table_co_adaptation.tex}
+    }
+    \caption{Experiments fine-tuning early layers of the network trained with regularization. An agent is trained with dropout + $\ell_2$ regularization in the default flavour of each game for 50M frames, then DQN's parameters $\theta$ were used to initialize the corresponding layers to be further fine-tuned on each new flavour. Remaining layers were randomly initialized. Compared against fine-tuning the entire network from Table~\ref{table:warmbaseline}. Standard deviation reported between~parenthesis.}
+    \label{table:layer_comparison}
+\end{table}
+
+Many studies have tried to explain generalization of deep neural networks in supervised learning settings \citep[e.g.,][]{Zhang18, Dinh17}. Analyzing generalization and overfitting in deep RL has its own issues on top of the challenges posed in the supervised learning case.
+Actually, generalization in RL can be seen in different ways.
+We can talk about generalization in RL in terms of conditioned sub-goals within an environment \citep[e.g.,][]{Andrychowicz17, Sutton95}, learning multiple tasks at once \citep[e.g.,][]{Teh17, Parisotto16}, or sequential task learning as in a continual learning setting \citep[e.g.,][]{Schwarz18, Kirkpatrick16}.
+In this paper we evaluated generalization in terms of small variations of high-dimensional control tasks. This provides a candid evaluation method to study how well features and policies learned by deep neural networks in RL problems can generalize. The approach of studying generalization with respect to the representation learning problem intersects nicely with the aforementioned problems in RL where generalization is key.
+
+
+The empirical evaluation presented in this paper has shown that traditional DQN seems to generalize poorly even between very similar high-dimensional control tasks. Given this lack of generality we investigated how dropout and $\ell_2$ regularization can be used to improve generalization in deep RL. Other forms of regularization in RL that have been explored in the past are sticky-actions, random initial states, entropy regularization~\citep{Zhang18}, and procedural generation of environments \citep{Justesen2018}. More related to our work, regularization in the form of weight constraints has been applied in the continual learning setting in order to reduce the catastrophic forgetting exhibited by fine-tuning on many sequential tasks \citep{Kirkpatrick16, Schwarz18}.
+Similar weight constraint methods have been explored in multitask learning \citep{Teh17}.
+
+Evaluation practices in RL often focuses on training and evaluating agents on exactly the same task. Consequently, regularization has traditionally been underutilized in deep RL. With a renewed emphasis on generalization in RL, regularization applied to the representation learning problem can be a feasible method to improving generalization on closely related tasks.
+Our results suggest that dropout and $\ell_2$ regularization seem to be able to learn more general purpose features which can be adapted to similar problems. Although other communities relying on deep neural networks have shown similar successes, this is of particular importance for the deep RL community which struggles with sample efficiency \citep{Henderson17}. This work is also related to recent meta-learning procedures like MAML \citep{Finn17} which aim to find a parameter initialization that can be quickly adapted to new tasks.
+In fact, some of the results here can also be seen under the light of curriculum learning. The regularization techniques we've evaluated here seem to be effective in leveraging situations where an easier task is presented first, sometimes leading to unseen performance levels (e.g., \textsc{Freeway}).
+
+
+
+Finally, we believe it would be extremely beneficial for the field if we were able to develop algorithms that can generalize across tasks. Ultimately we want agents that can keep learning as they interact with the world in a continual learning fashion. The ability to generalize is essential. Throughout this paper we often avoided the expression \emph{transfer learning} because we believe that succeeding in slightly different environments should be actually seen as a problem of generalization. Our results suggested that regularizing and fine-tuning representations in deep RL might be a viable approach towards improving sample efficiency and generalization on multiple tasks. It is particularly interesting that fine-tuning a regularized network was the most successful approach because this might also be applicable in the continual learning settings where the environment changes without the agent being told so, and re-initializing layers of a network is obviously not an option.
+In this setting, the work from \cite{Kirkpatrick16}, and \cite{Schwarz18} might be a great starting point as they provide a more thorough discussion of generalization in continual learning.
+
+\section*{Acknowledgments}
+
+The authors would like to thank Matthew E. Taylor, Tom Van de Wiele, and  Marc G. Bellemare for useful discussions, as well as Vlad Mnih for feedback on a preliminary draft of the manuscript.
+This work was supported by funding from NSERC and Alberta Innovates Technology Futures through the
+Alberta Machine Intelligence Institute (Amii). Computing resources were provided by Compute~Canada through CalculQu\'{e}bec.
+
+\bibliography{bibliography}
+\bibliographystyle{iclr2019_conference.bst}
+
+\newpage
+\appendix
+
+\section{Game Modes}
+\label{appendix:modes}
+
+\subsection*{\textsc{Freeway}}
+\begin{figure}[h]
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/freeway_m0.png}
+    \caption{\textsc{Freeway} m0d0}
+    \end{subfigure}
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/freeway_m1.png}
+    \caption{\textsc{Freeway} m1d0}
+    \end{subfigure}
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/freeway_m4.png}
+    \caption{\textsc{Freeway} m4d0}
+    \end{subfigure}
+\end{figure}
+In \textsc{Freeway} a chicken must cross a road containing multiple lanes of moving traffic within a prespecified time limit. In all modes of \textsc{Freeway}, the agent gets rewarded for reaching the top of the screen and is subsequently teleported to the bottom of the screen.
+If the chicken collides with a vehicle in difficulty 0 it gets bumped down one lane of traffic, alternatively, in difficulty 1 the chicken gets teleported to its starting position on the bottom of the screen.
+Mode 1 changes some vehicle sprites to include buses, adds more vehicles to some lanes, and increases the velocity of all vehicles.
+Mode 4 is almost identical to Mode 1; the only difference being vehicles can oscillate between two speeds.
+
+\subsection*{\textsc{Hero}}
+\begin{figure}[h]
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/hero_m0.png}
+    \caption{\textsc{Hero} m0d0}
+    \end{subfigure}
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/hero_m1.png}
+    \caption{\textsc{Hero} m1d0}
+    \end{subfigure}
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/hero_m2.png}
+    \caption{\textsc{Hero} m2d0}
+    \end{subfigure}
+\end{figure}
+In \textsc{Hero} you control a character who must navigate a maze in order to save a trapped miner within a cave system. 
+The agent scores points for any forward progression such as clearing an obstacle or killing an enemy.
+Once the miner is rescued, the level is terminated and you continue to the next level with a different maze. Some levels have partially observable rooms, more enemies, and more difficult obstacles to traverse. Past the default mode, each subsequent mode starts off at increasingly harder levels denoted by a level number increasing by multiples of $5$. The default mode starts you off at level $1$, mode 1 starts at level $5$, and so on.
+
+
+\subsection*{\textsc{Breakout}}
+\begin{figure}[h]
+    \begin{subfigure}{0.49\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/breakout_m0.png}
+    \caption{\textsc{Breakout} m0d0}
+    \end{subfigure}
+    \begin{subfigure}{0.49\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/breakout_m12.png}
+    \caption{\textsc{Breakout} m12d0}
+    \end{subfigure}
+\end{figure}
+In \textsc{Breakout} you control a paddle which can move horizontally along the bottom of the screen. At the beginning of the game, or on loss of life a ball is set into motion and can bounce off the paddle and collide with bricks at the top of the screen. The objective of the game is to break all the bricks without having the ball fall below your paddles horizontal plane.
+Subsequently, mode 12 of breakout hides the bricks from the player until the ball collides with the bricks in which case the bricks flash for a brief moment before disappearing again.
+
+\subsection*{\textsc{Space Invaders}}
+\begin{figure}[h]
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/space_invaders_m0.png}
+    \caption{\textsc{Space Invaders} m0d0}
+    \end{subfigure}
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/space_invaders_m1.png}
+    \caption{\textsc{Space Invaders} m1d1}
+    \end{subfigure}
+    \begin{subfigure}{0.32\linewidth}
+    \centering
+    \includegraphics[width=1.2in]{figures/alemodes/space_invaders_m9.png}
+    \caption{\textsc{Space Invaderws} m9d0}
+    \end{subfigure}
+\end{figure}
+When playing \textsc{Space Invaders} you control a spaceship which can move horizontally along the bottom of the screen. There is a grid of aliens which are above you and the objective of the game is to shoot-out all aliens. You are afforded some protection from the alien bullets with three barriers just above the spaceship. Difficulty 1 of space invaders widens your spaceships sprite making it harder to doge enemy bullets. Mode 1 of \textsc{Space Invaders} causes the shields above you to oscillate horizontally. Mode 9 of \textsc{Space Invaders} is similar to Mode 12 of \textsc{Breakout} where the aliens are partially observable until struck with the players bullet.
+
+%\clearpage
+\section{Baseline Results}
+\label{appendix:baselines}
+
+In all experiments performed in this paper we utilize the neural network architecture used by \cite{Mnih15}. That is, a convolutional neural network with three convolutional layers and two fully connected layers. A visualization of this network can be found in Figure~\ref{fig:architechture}. Hyperparametes are generally kept consistent with \cite{Machado18}. Below we provide a table of the key hyperparameters used in the baseline experiments.
+
+\subsection*{Neural network architecture}
+\begin{figure}[h]
+    \centering
+    \includegraphics[scale=0.3]{figures/architecture.pdf}
+    \caption{Neural network architecture used by DQN to predict state-action values.}
+    \label{fig:architechture}
+\end{figure}
+
+\subsection*{Hyperparameters}
+\begin{figure}[h]
+\begin{minipage}{0.5\linewidth}
+    \begin{tabular}{l l}
+        Learning rate $\alpha$ & $0.00025$ \\
+        Minibatch size & $32$ \\
+        Dropout rate convolutions & $0.05$ \\
+        Dropout rate fully connected & $0.1$ \\
+        Regularization term $\lambda$ & $0.0001$
+    \end{tabular}
+\end{minipage}
+\begin{minipage}{0.5\linewidth}
+    \begin{tabular}{l l}
+        Replay buffer size & $1,000,000$ \\
+        Target update frequency & $4$ \\
+        $\epsilon$ decay horizon & 1M frames \\
+        $\epsilon$ initial & $1.0$ \\
+        $\epsilon$ final & $0.01$ \\
+        Discount factor $\gamma$ & 0.99 \\
+    \end{tabular}
+\end{minipage}
+\end{figure}
+
+\subsection*{Evaluation}
+Each baseline run is trained for up to 100M frames in each game flavour. We decay epsilon linearly over the $\epsilon$-decay period to allow for an exploratory period at the beginning of training. We use sticky-actions with a probability of $p=0.25$ of executing $A_{t-1}$ instead of action $A_t$ \citep{Machado18}. We allow the agent access to all 18 primitive actions in the ALE, we do not utilize the reduced action set nor the lives signal.
+
+Furthermore, as a crude measure for environment complexity, we measure the best greedy action an agent could take in a game flavour. Simply put, we iterate through every action in $\mathscr{A}$, executing this action $\epsilon$-greeidly, with $\epsilon = 0.01$, at every time step for $100$ episodes. These results were then averaged over $5$ runs with the standard deviations between runs reported in parenthesis. 
+
+\begin{table}[H]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \input{tables/table_baselines.tex}
+    }
+    \vspace{3mm}
+    \caption{Baselines using vanilla DQN for all tested game variants.}
+    \label{table:baselines}
+\end{table}
+\begin{table}[H]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \input{tables/table_baselines_reg.tex}
+    }
+    \vspace{3mm}
+    \caption{Baselines using dropout + $\ell_2$ regularization for each default flavour.}
+    \label{table:baselinesreg}
+\end{table}
+\begin{table}[H]
+    \centering
+    \resizebox{\textwidth}{!}{
+        \input{tables/table_comparison.tex}
+    }
+    \vspace{3mm}
+    \caption{Comparison of baseline results with and without regularization in the default flavour. The baseline agent with regularization was trained with dropout and $\ell_2$ regularization.}
+    \label{table:baselinecompare}
+\end{table}
+
+
+%\clearpage
+\newpage
+\section{Policy Evaluation Learning Curves}
+\label{appendix:policy_transfer_cuves}
+We provide learning curves for evaluating a policy learned in the default flavour (m0d0) to each subsequent flavour of that game.
+Each subplot are the results of evaluating the policy from a representation trained with and without regularization.
+\subsection*{Evaluation}
+Checkpoint of the network weights $\theta$ were taken during training every $500,000$ frames, up to 50M frames in total. Each checkpoint was then evaluated in the target mode for $100$ episodes averaged over five runs. Hyperparameters are kept consistent with the baseline experiments in Appendix~B. 
+
+\begin{figure}[H]
+\centering
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/freeway_m1d0_reg.pdf}}
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/freeway_m1d1_reg.pdf}}
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/freeway_m4d0_reg.pdf}}
+\\
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/hero_m1d0_reg.pdf}}
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/hero_m2d0_reg.pdf}}
+\\
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/breakout_m12d0_reg.pdf}}
+\\
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/space_invaders_m1d0_reg.pdf}}
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/space_invaders_m1d1_reg.pdf}}
+\subcaptionbox*{}{\includegraphics[width = .3\textwidth]{figures/policy_evaluation/space_invaders_m9d0_reg.pdf}}
+\caption{Performance curves for policy evaluation results. The x-axis is the number of frames before we evaluated the $\epsilon$-greedy policy from the default flavour on the target flavour. The y-axis is the cumulative reward the agent incurred.}
+\end{figure}
+
+
+\end{document}

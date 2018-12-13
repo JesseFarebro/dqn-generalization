@@ -1,0 +1,104 @@
+
+\begin{tabular}{ll rl rl rl rl rl rl}
+\multicolumn{2}{c}{} & \multicolumn{4}{c}{\textsc{Fine-tuning}} & \multicolumn{4}{c}{\textsc{Regularized Fine-tuning}} & \multicolumn{4}{c}{\textsc{Scratch}} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-10} \cmidrule(lr){11-14} \\
+\multicolumn{2}{c}{\textsc{Game Variant}}
+& \multicolumn{2}{c}{10M} & \multicolumn{2}{c}{50M}
+& \multicolumn{2}{c}{10M} & \multicolumn{2}{c}{50M}
+& \multicolumn{2}{c}{\textsc{50M}} &  \multicolumn{2}{c}{\textsc{100M}} \\ \midrule[0.4mm]
+
+\multirow{3}{*}{\textsc{Freeway}}
+& m1d0
+& $2.9$ & ($3.7$) % 10M scratch 
+& $22.5$ & ($7.5$) % 50M scratch
+
+& $20.2$ & ($1.9$) % 10M reg
+& $25.4$ & $(0.2)$ % 50M reg
+
+& $4.8$ & ($9.3$)
+& $7.5$ & ($11.5$) \\  \cmidrule(l){2-14}
+
+& m1d1
+& $0.1$ & ($0.2$) % 10M scratch
+& $17.4$ & ($11.4$) % 50M scratch
+
+& $18.5$ & ($2.8$) % 10M reg
+& $25.4$ & $(0.4)$ % 50M reg
+
+& $0.0$ & ($0.0$)
+& $2.5$ & ($7.3$) \\  \cmidrule(l){2-14}
+
+& m4d0
+& $20.8$ & ($1.1$) % 10M scratch
+& $31.4$ & ($0.5$) % 50M scratch
+
+& $22.6$ & ($0.7$) % 10M reg
+& $32.2$ & $(0.5)$ % 50M reg
+
+& $29.9$ & ($0.7$)
+& $32.8$ & $(0.2)$ \\ \cmidrule[0.2mm]{1-14}
+
+\multirow{2}{*}{\textsc{Hero}}
+& m1d0
+& $220.7$ & ($98.2$) % 10M scratch
+& $496.7$ & ($362.8$) % 50M scratch
+
+& $322.5$ & ($39.3$) % 10M reg
+& $4104.6$ & ($2192.8$) % 50M reg
+
+& $1425.2$ & ($1755.1$)
+& $5026.8$ & $(2174.6)$ \\ \cmidrule(l){2-14}
+
+& m2d0
+& $74.4$ & ($31.7$) % 10M scratch
+& $92.5$ & ($26.2$) % 50M scratch
+
+& $84.8$ & ($56.1$) % 10M reg
+& $211.0$ & ($100.6$) % 50M reg
+
+& $326.1$ & ($130.4$)
+& $323.5$ & $(76.4)$ \\ \cmidrule[0.2mm]{1-14}
+
+\multirow{1}{*}{\textsc{Breakout}}
+& m12d0
+& $11.5$ & ($10.7$) % 10M scratch
+& $69.1$ & ($14.9$) % 50M scratch
+
+& $48.2$ & ($4.1$) % 10M reg
+& $96.1$ & ($11.2$) % 50M reg
+
+& $67.6$ & ($32.4$)
+& $55.2$ & ($37.2$) \\ \cmidrule[0.2mm]{1-14}
+
+\multirow{3}{*}{\textsc{Space Invaders}}
+
+& m1d0
+& $617.8$ & ($55.9$) % 10M scratch
+& $926.1$ & ($56.6$) % 50M scratch
+
+& $701.8$ & ($28.5$) % 10M reg
+& $1033.5$ & $(89.7)$ % 50M reg 
+
+& $753.6$ & ($31.6$)
+& $979.7$ & ($39.8$) \\ \cmidrule(l){2-14}
+
+& m1d1
+& $482.6$ & ($63.4$) % 10M scratch
+& $799.4$ & ($52.5$) % 50M scratch
+
+& $656.7$ & ($25.5$) % 10M reg
+& $920.0$ & $(83.5)$ % 50M reg
+
+& $698.5$ & ($31.3$)
+& $906.9$ & ($56.5$) \\ \cmidrule(l){2-14}
+
+& m9d0
+& $354.8$ & ($59.4$) % 10M scratch
+& $574.1$ & ($37.0$) % 50M scratch
+
+& $519.0$ & ($31.1$) % 10M reg
+& $583.0$ & $(17.5)$ % 50M reg
+
+& $518.0$ & ($16.7$)
+& $567.7$ & ($40.1$) \\
+\end{tabular}
